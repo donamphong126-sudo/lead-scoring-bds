@@ -11,13 +11,8 @@ st.markdown("Hệ thống quản lý khách hàng tiềm năng ngành Bất Đ�
 # --- CẤU HÌNH API KEY ---
 with st.sidebar:
     st.header("⚙️ Cấu hình Hệ thống")
-    api_key = st.text_input("Nhập Gemini API Key", type="password")
-    if api_key:
-        genai.configure(api_key=api_key)
-        st.success("API Key đã được cấu hình!")
-    else:
-        st.warning("Vui lòng nhập API Key để sử dụng tính năng AI Scoring.")
-        
+    st.info("Hệ thống đang sử dụng thuật toán chấm điểm tự động bằng từ khóa (Không cần API Key).")
+    
     st.divider()
     
     # URL Google Sheet
@@ -72,32 +67,45 @@ if 'df' not in st.session_state:
 
 df = st.session_state.df
 
-# --- AI SCORING LOGIC ---
+# --- RULE-BASED SCORING LOGIC ---
 def score_lead(description):
-    if not api_key:
+    if not isinstance(description, str):
         return 0
+        
+    desc_lower = description.lower()
+    score = 0
     
-    prompt = f"""
-Bạn là một AI đánh giá khách hàng Bất động sản (Lead Scoring Agent).
-Dựa vào Bộ Knowledge sau đây để tính điểm:
-
-{knowledge}
-
-Hãy chấm điểm cho khách hàng có mô tả nhu cầu sau:
-"{description}"
-
-Yêu cầu trả kết quả: CHỈ IN RA DUY NHẤT 1 CON SỐ (ví dụ: 50, -50, 0). KHÔNG ĐƯỢC GIẢI THÍCH THÊM.
-    """
+    # 1. TIÊU CHÍ CỘNG 50 ĐIỂM (KHÁCH HÀNG VIP/SIÊU TIỀM NĂNG)
+    vip_keywords = [
+        "20 tỷ", "tài chính mạnh", "không thành vấn đề", 
+        "biệt thự đơn lập", "penthouse", "shophouse", 
+        "quỹ đất", "sàn văn phòng", "quận 1", "ven sông", 
+        "vinhomes", "phú mỹ hưng", "chủ doanh nghiệp", 
+        "nhà đầu tư", "mua sỉ", "mua số lượng", 
+        "pháp lý chuẩn", "sổ hồng riêng", "gặp trực tiếp"
+    ]
     
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(prompt)
-        score_text = response.text.strip()
-        # Ép kiểu an toàn
-        return int(score_text)
-    except Exception as e:
-        print(f"Error AI: {e}")
-        return 0
+    # 2. TIÊU CHÍ TRỪ 50 ĐIỂM (KHÁCH HÀNG RÁC/KHÔNG TIỀM NĂNG)
+    spam_keywords = [
+        "1-2 tỷ", "nhầm số", "không có nhu cầu", 
+        "dữ liệu cũ", "nhầm ngành", "hỏi giá cho vui", 
+        "chưa có ý định", "bảo hiểm", "vay vốn", 
+        "thuê bao", "không bắt máy", "không phản hồi"
+    ]
+    
+    # Cộng điểm nếu có từ khóa VIP
+    for kw in vip_keywords:
+        if kw in desc_lower:
+            score += 50
+            break # Cộng 1 lần thôi để tránh điểm quá cao
+            
+    # Trừ điểm nếu có từ khóa rác
+    for kw in spam_keywords:
+        if kw in desc_lower:
+            score -= 50
+            break
+            
+    return score
 
 # --- GIAO DIỆN CHÍNH ---
 col1, col2 = st.columns([3, 1])
@@ -105,11 +113,8 @@ col1, col2 = st.columns([3, 1])
 with col1:
     st.subheader("📋 Danh sách Khách hàng")
 with col2:
-    if st.button("🤖 AI Scoring (Agent)", use_container_width=True, type="primary"):
-        if not api_key:
-            st.error("Vui lòng nhập API Key!")
-        else:
-            with st.spinner("AI đang quét và chấm điểm..."):
+    if st.button("🤖 Chấm điểm tự động", use_container_width=True, type="primary"):
+        with st.spinner("Hệ thống đang quét và chấm điểm..."):
                 for idx, row in df.iterrows():
                     # Bỏ qua nếu mô tả trống
                     if pd.notna(row.get('Mô tả nhu cầu')):
@@ -118,7 +123,7 @@ with col2:
                 
                 # Cập nhật state
                 st.session_state.df = df
-                st.success("Hoàn tất chấm điểm bằng AI!")
+                st.success("Hoàn tất chấm điểm!")
                 st.rerun()
 
 # Data Editor cho phép chỉnh sửa
